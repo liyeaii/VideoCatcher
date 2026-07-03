@@ -16,19 +16,9 @@ class VideoService:
         'writeautomaticsub': False,
     }
 
-    SUBS_OPTS = {
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'writesubtitles': True,
-        'writeautomaticsub': True,
-        'subtitleslangs': ['zh-Hans', 'zh', 'en'],
-        'subtitlesformat': 'srt',
-    }
-
     def __init__(self, temp_dir: str = "./downloads"):
-        self.temp_dir = temp_dir
-        os.makedirs(temp_dir, exist_ok=True)
+        self.temp_dir = os.path.abspath(temp_dir)
+        os.makedirs(self.temp_dir, exist_ok=True)
 
     async def extract_info(self, url: str) -> dict:
         """Extract video metadata. Runs sync yt-dlp in executor."""
@@ -164,28 +154,84 @@ class VideoService:
     def _extract_subs_sync(self, url: str) -> Optional[str]:
         try:
             import yt_dlp
-            with yt_dlp.YoutubeDL(self.SUBS_OPTS) as ydl:
+            import httpx
+            import re
+
+            with yt_dlp.YoutubeDL(self.INFO_OPTS) as ydl:
                 info = ydl.extract_info(url, download=False)
-            # Check requested_subtitles or subtitles from info dict
-            subs = info.get('requested_subtitles') or info.get('subtitles', {})
-            if not subs:
-                return None
-            # Pick best language: zh-Hans > zh > en > first available
+
+            # Try requested_subtitles first (yt-dlp may auto-request based on opts),
+            # then fall back to subtitles and automatic_captions in raw info
+            subtitles = (
+                info.get('requested_subtitles')
+                or info.get('subtitles', {})
+            )
+            auto_captions = info.get('automatic_captions', {})
+
             preferred = ['zh-Hans', 'zh-CN', 'zh', 'en']
-            sub_data = None
-            for lang in preferred:
-                if lang in subs:
-                    sub_data = subs[lang]
+            sub_url = None
+
+            # Search manual subtitles first, then auto captions
+            for source in (subtitles, auto_captions):
+                if not source:
+                    continue
+                for lang in preferred:
+                    if lang in source:
+                        candidates = source[lang]
+                        if isinstance(candidates, list) and len(candidates) > 0:
+                            sub_url = candidates[0].get('url')
+                            if sub_url:
+                                break
+                if sub_url:
                     break
-            if not sub_data and subs:
-                sub_data = list(subs.values())[0]
-            if not sub_data:
+                # fallback: first available language
+                if source:
+                    first_key = next(iter(source), None)
+                    if first_key:
+                        candidates = source[first_key]
+                        if isinstance(candidates, list) and len(candidates) > 0:
+                            sub_url = candidates[0].get('url')
+                            if sub_url:
+                                break
+
+            if not sub_url:
                 return None
-            # sub_data is a list of dicts; get the first one with 'data'
-            if isinstance(sub_data, list) and len(sub_data) > 0:
-                text = sub_data[0].get('data', '')
-                return text[:2000] if text else None
-            return None
+
+            # Fetch subtitle content
+            resp = httpx.get(sub_url, timeout=10.0, follow_redirects=True)
+            if resp.status_code != 200:
+                return None
+
+            raw_text = resp.text
+
+            # Strip SRT/VTT formatting: remove timestamps, numbers, tags
+            lines = raw_text.split('\n')
+            clean_lines = []
+            for line in lines:
+                line = line.strip()
+                # Skip empty, numeric-only (SRT index), timestamp lines, WEBVTT header
+                if not line:
+                    continue
+                if line.isdigit():
+                    continue
+                if '-->' in line:
+                    continue
+                if line.startswith('WEBVTT'):
+                    continue
+                if line.startswith('Kind:'):
+                    continue
+                if line.startswith('Language:'):
+                    continue
+                # Remove HTML/XML tags
+                line = re.sub(r'<[^>]+>', '', line)
+                # Remove SRT/VTT style markup like {\an8}
+                line = re.sub(r'\{[^}]+\}', '', line)
+                if line.strip():
+                    clean_lines.append(line.strip())
+
+            text = ' '.join(clean_lines)
+            return text[:2000] if text else None
+
         except Exception:
             return None
 
@@ -236,9 +282,10 @@ class VideoService:
 
     def cleanup(self, file_path: str):
         """Remove temp files after streaming."""
-        parent_dir = os.path.dirname(file_path)
-        # Find the top-level temp dir (downloads/{uuid})
-        while parent_dir and os.path.commonpath([parent_dir, self.temp_dir]) != self.temp_dir:
+        abs_path = os.path.abspath(file_path)
+        parent_dir = os.path.dirname(abs_path)
+        # Walk up to find the temp subdirectory (e.g. downloads/{uuid})
+        while parent_dir and os.path.commonpath([parent_dir, self.temp_dir]) != os.path.abspath(self.temp_dir):
             parent_dir = os.path.dirname(parent_dir)
         if parent_dir and parent_dir.startswith(self.temp_dir) and os.path.exists(parent_dir):
             shutil.rmtree(parent_dir, ignore_errors=True)
