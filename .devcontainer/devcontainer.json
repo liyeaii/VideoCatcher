@@ -1,0 +1,63 @@
+// ============================================
+// VS Code DevContainer 配置
+// 在 Docker 隔离环境中运行 VS Code + Claude Code
+// 使用方法：VS Code → F1 → "Dev Containers: Reopen in Container"
+// ============================================
+{
+  "name": "VideoCatcher Dev (隔离环境)",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "videocatcher",
+  "workspaceFolder": "/workspace",
+
+  // ---- 容器内安装的 VS Code 扩展 ----
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.terminal.activateEnvironment": false,
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        }
+      }
+    }
+  },
+
+  // ---- 容器创建后执行的命令 ----
+  // 确保依赖是最新版本
+  "postCreateCommand": "pip install --user -r backend/requirements.txt && cd /workspace/frontend && npm install && echo '' && echo '✅ 容器环境已就绪' && echo '后端启动: cd /workspace/backend && uvicorn main:app --reload --host 0.0.0.0' && echo '前端启动: cd /workspace/frontend && npm run dev -- --host 0.0.0.0'",
+
+  // ---- 端口转发（容器 → 宿主机）----
+  "forwardPorts": [8000, 5173],
+
+  // ---- 端口属性 ----
+  "portsAttributes": {
+    "8000": {
+      "label": "后端 API",
+      "onAutoForward": "notify"
+    },
+    "5173": {
+      "label": "前端界面",
+      "onAutoForward": "openBrowser"
+    }
+  },
+
+  // ---- 容器内使用非 root 用户 ----
+  "remoteUser": "developer",
+
+  // ---- 不挂载额外目录（安全隔离）----
+  "mounts": [],
+
+  // ---- 容器特性 ----
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  }
+}

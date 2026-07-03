@@ -1,0 +1,67 @@
+# ============================================
+# VideoCatcher Docker Compose 配置
+# 一键启动隔离开发环境
+# ============================================
+services:
+  videocatcher:
+    build: .
+    container_name: videocatcher-dev
+    hostname: videocatcher
+
+    # ---- 挂载项目代码（容器内开发，宿主机修改即时生效）----
+    volumes:
+      - ./backend:/workspace/backend:rw
+      - ./frontend:/workspace/frontend:rw
+      - ./downloads:/workspace/downloads:rw
+      # 隔离保护：不挂载系统目录，容器内无法访问 C:\ 等宿主机文件
+
+    # ---- 端口映射 ----
+    ports:
+      - "8000:8000"   # FastAPI 后端
+      - "5173:5173"   # Vite 前端开发服务器
+
+    # ---- 环境变量 ----
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CORS_ORIGINS=http://localhost:5173
+      - PYTHONUNBUFFERED=1
+
+    # ---- 安全限制 ----
+    # 注意：不设置 user 字段，让 VS Code DevContainer 自动处理用户映射
+    # 如果直接 docker-compose up，容器默认以 root 运行但会在启动脚本中切换
+
+    # ---- 资源限制 ----
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: '2'
+
+    # ---- 健康检查 ----
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # ---- 启动脚本 ----
+    # 直接启动时显示使用说明；在 VS Code DevContainer 中会被覆盖
+    command: >
+      bash -c "
+      echo '';
+      echo '╔══════════════════════════════════════════╗';
+      echo '║     VideoCatcher 隔离开发环境已就绪      ║';
+      echo '╠══════════════════════════════════════════╣';
+      echo '║  后端 API:  http://localhost:8000         ║';
+      echo '║  前端界面:  http://localhost:5173         ║';
+      echo '║  API 文档:  http://localhost:8000/docs     ║';
+      echo '╠══════════════════════════════════════════╣';
+      echo '║  启动后端:  cd /workspace/backend &&       ║';
+      echo '║             uvicorn main:app --reload     ║';
+      echo '║  启动前端:  cd /workspace/frontend &&      ║';
+      echo '║             npm run dev                   ║';
+      echo '╚══════════════════════════════════════════╝';
+      echo '';
+      bash
+      "

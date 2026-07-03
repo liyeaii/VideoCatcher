@@ -1,0 +1,43 @@
+# ============================================
+# Docker 构建忽略文件
+# 加速构建，减少镜像体积
+# ============================================
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+
+# Node.js
+node_modules/
+.vite/
+
+# 下载缓存
+downloads/
+
+# 环境变量（通过 docker-compose 注入）
+.env
+backend/.env
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# 文档
+*.md
+!README.md
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.log
+*.tmp
