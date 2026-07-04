@@ -1,4 +1,4 @@
-import { Download, Loader2, Film, Music, Monitor, Star, ArrowDown, Check } from 'lucide-react';
+import { Download, Loader2, Film, Music, Monitor, Star, ArrowDown, Check, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 
 const TYPE_CONFIG = {
@@ -13,7 +13,7 @@ function useDownloadState() {
   return { completed, markComplete };
 }
 
-export default function DownloadOptions({ formats, onDownload, downloadingId, downloadProgress }) {
+export default function DownloadOptions({ formats, onDownload, downloadingId, downloadProgress, downloadError }) {
   if (!formats || formats.length === 0) return null;
 
   const grouped = {};
@@ -34,6 +34,17 @@ export default function DownloadOptions({ formats, onDownload, downloadingId, do
         </div>
         <h2 className="text-base font-bold text-surface-800">下载选项</h2>
       </div>
+
+      {/* Download error */}
+      {downloadError && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2.5">
+          <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">{downloadError.title}</p>
+            <p className="text-xs text-amber-600 mt-0.5">{downloadError.detail || 'Render 免费版可能不支持大文件下载，建议本地运行后端'}</p>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-5">
         {typeOrder.map(type => {

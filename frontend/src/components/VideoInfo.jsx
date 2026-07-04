@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { User, Clock, Eye, ChevronDown, ChevronUp, ExternalLink, Play } from 'lucide-react';
 
+// 生产环境图片代理：GitHub Pages 无法直接访问第三方图片（防盗链/跨域）
+// 通过后端代理所有外部图片
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 function proxyImage(url) {
   if (!url) return '';
-  if (url.includes('hdslb.com') || (url.includes('bilibili.com') && !url.includes('api.'))) {
-    return `/api/image/proxy?url=${encodeURIComponent(url)}`;
+  if (url.startsWith('http')) {
+    return `${API_BASE}/api/image/proxy?url=${encodeURIComponent(url)}`;
   }
   return url;
 }

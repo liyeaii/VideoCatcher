@@ -23,7 +23,7 @@ const FEATURES = [
 export default function App() {
   const {
     phase, videoInfo, summary, summaryError, error,
-    downloadingId, downloadProgress,
+    downloadingId, downloadProgress, downloadError,
     submitUrl, retry, reset, download: triggerDownload,
   } = useVideoData();
 
@@ -74,6 +74,7 @@ export default function App() {
               onDownload={handleDownload}
               downloadingId={downloadingId}
               downloadProgress={downloadProgress}
+              downloadError={downloadError}
             />
 
             {/* Row 3: Advanced features in collapsible panels */}

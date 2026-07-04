@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { fetchVideoInfo, fetchVideoSummary, downloadVideo } from '../api/client';
 
 export function useVideoData() {
-  const [phase, setPhase] = useState('idle'); // idle | loading | loaded | error
+  const [phase, setPhase] = useState('idle');
   const [videoInfo, setVideoInfo] = useState(null);
   const [summary, setSummary] = useState(null);
   const [summaryError, setSummaryError] = useState(null);
@@ -10,6 +10,7 @@ export function useVideoData() {
   const [lastUrl, setLastUrl] = useState('');
   const [downloadingId, setDownloadingId] = useState(null);
   const [downloadProgress, setDownloadProgress] = useState({});
+  const [downloadError, setDownloadError] = useState(null);
 
   const abortRef = useRef(null);
 
@@ -31,16 +32,13 @@ export function useVideoData() {
     setError(null);
     setLastUrl(url);
 
-    // Fetch info + summary in parallel
     const [infoResult, summaryResult] = await Promise.allSettled([
       fetchVideoInfo(url, controller.signal),
       fetchVideoSummary(url, controller.signal),
     ]);
 
-    // If cancelled, don't update state
     if (controller.signal.aborted) return;
 
-    // Handle info result
     if (infoResult.status === 'fulfilled' && infoResult.value.ok) {
       setVideoInfo(infoResult.value.data);
     } else {
@@ -50,7 +48,6 @@ export function useVideoData() {
       return;
     }
 
-    // Handle summary result
     if (summaryResult.status === 'fulfilled') {
       if (summaryResult.value.ok) {
         setSummary(summaryResult.value.data);
@@ -81,23 +78,28 @@ export function useVideoData() {
     setLastUrl('');
     setDownloadingId(null);
     setDownloadProgress({});
+    setDownloadError(null);
   }, [cancelPending]);
 
   const download = useCallback(async (url, formatId, type) => {
     setDownloadingId(formatId);
     setDownloadProgress((prev) => ({ ...prev, [formatId]: 0 }));
+    setDownloadError(null);
 
     const result = await downloadVideo(url, formatId, type, (pct) => {
       setDownloadProgress((prev) => ({ ...prev, [formatId]: pct }));
     });
 
     setDownloadingId(null);
+    if (!result.ok) {
+      setDownloadError(result.error);
+    }
     return result;
   }, []);
 
   return {
     phase, videoInfo, summary, summaryError, error, lastUrl,
-    downloadingId, downloadProgress,
+    downloadingId, downloadProgress, downloadError,
     submitUrl, retry, reset, download,
   };
 }
