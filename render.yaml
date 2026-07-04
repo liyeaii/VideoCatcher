@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: videocatcher-api
+    runtime: docker
+    rootDir: backend
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_PROVIDER
+        value: auto
+      - key: AI_MODEL
+        value: ""
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: VIDEO_INFO_CACHE_TTL
+        value: "1800"
+      - key: SUMMARY_CACHE_TTL
+        value: "3600"
+      - key: TEMP_DOWNLOAD_DIR
+        value: ./downloads
+      - key: BILIBILI_COOKIE
+        sync: false
