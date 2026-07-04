@@ -57,22 +57,35 @@ class DouyinService:
         self._browser = None
 
     async def _ensure_browser(self):
-        """Lazy-init Playwright browser."""
+        """Lazy-init Playwright browser (Chromium must be installed)."""
         if self._browser is not None:
             return self._browser
 
-        from playwright.async_api import async_playwright
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            raise RuntimeError(
+                "Playwright 未安装。请在 Railway Dockerfile 中添加:\n"
+                "RUN pip install playwright && python -m playwright install chromium"
+            )
 
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-            ],
-        )
+        try:
+            self._browser = await self._playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                ],
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Chromium 启动失败: {e}\n"
+                "请在 Railway Dockerfile 中安装 Chromium:\n"
+                "RUN python -m playwright install chromium && python -m playwright install-deps chromium"
+            )
         return self._browser
 
     async def close(self):
