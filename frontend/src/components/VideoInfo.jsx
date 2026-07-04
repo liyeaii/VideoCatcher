@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { User, Clock, Eye, ChevronDown, ChevronUp, ExternalLink, Play } from 'lucide-react';
 
-// 生产环境图片代理：GitHub Pages 无法直接访问第三方图片（防盗链/跨域）
-// 通过后端代理所有外部图片
+// 需要代理的图片域名（防盗链/Referer限制）
+// YouTube等平台图片可直接加载，不需要代理
+const PROXIED_DOMAINS = ['hdslb.com', 'bilibili.com', 'douyin.com', 'douyincdn.com', 'pstatp.com'];
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 function proxyImage(url) {
   if (!url) return '';
-  if (url.startsWith('http')) {
+  if (!url.startsWith('http')) return url;
+  const needsProxy = PROXIED_DOMAINS.some(d => url.includes(d));
+  if (needsProxy) {
     return `${API_BASE}/api/image/proxy?url=${encodeURIComponent(url)}`;
   }
   return url;
@@ -37,6 +40,9 @@ export default function VideoInfo({ videoInfo }) {
               <img
                 src={proxyImage(thumbnail)}
                 alt={title}
+                referrerPolicy="no-referrer"
+                crossOrigin="anonymous"
+                onError={(e) => { e.target.style.display = 'none'; }}
                 className="w-full h-48 sm:h-full object-cover transition-transform duration-500 group-hover:scale-105"
                 loading="lazy"
               />
