@@ -12,6 +12,7 @@ class VideoURLRequest(BaseModel):
 class DownloadRequest(BaseModel):
     url: str
     format_id: str
+    type: str = "video+audio"  # "video+audio" | "video only" | "audio only"
 
 
 # ── Response Models ──
@@ -42,3 +43,17 @@ class VideoInfoResponse(BaseModel):
 class SummaryResponse(BaseModel):
     summary: str
     key_points: list[str] = []
+
+
+class AskRequest(BaseModel):
+    url: str
+    question: str
+
+
+class AskResponse(BaseModel):
+    answer: str
+
+
+class SubtitlesResponse(BaseModel):
+    text: str
+    language: str = ""

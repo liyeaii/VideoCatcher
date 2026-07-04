@@ -1,33 +1,41 @@
-import { AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
+import { AlertTriangle, RefreshCw, RotateCcw, ArrowLeft } from 'lucide-react';
 
 export default function ErrorMessage({ error, onRetry, onReset }) {
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 animate-fade-in">
-      <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-        <AlertTriangle size={40} className="mx-auto text-red-400 mb-3" />
-        <h3 className="text-lg font-semibold text-red-800 mb-1">{error?.title || '出错了'}</h3>
-        {error?.detail && (
-          <p className="text-sm text-red-600 mb-4">{error.detail}</p>
-        )}
-        <div className="flex justify-center gap-3">
-          {error?.retryable !== false && onRetry && (
-            <button
-              onClick={onRetry}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-full text-sm font-medium hover:bg-red-700 transition-colors"
-            >
-              <RefreshCw size={16} />
-              重试
-            </button>
-          )}
-          {onReset && (
-            <button
-              onClick={onReset}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-gray-700 border border-gray-300 rounded-full text-sm font-medium hover:bg-gray-50 transition-colors"
-            >
-              <RotateCcw size={16} />
-              换个链接
-            </button>
-          )}
+    <div className="animate-fade-in-up">
+      <div className="glass-card rounded-2xl p-8 text-center border-l-2 border-l-red-400">
+        <div className="inline-flex flex-col items-center gap-3 max-w-sm">
+          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+            <AlertTriangle size={24} className="text-red-500" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-surface-800 mb-1">
+              {error?.title || '解析失败'}
+            </h3>
+            {error?.detail && (
+              <p className="text-xs text-surface-500 leading-relaxed max-w-xs">
+                {error.detail}
+              </p>
+            )}
+          </div>
+          <div className="flex gap-2 mt-2">
+            {error?.retryable !== false && (
+              <button
+                onClick={onRetry}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-accent-600 text-white rounded-xl text-sm font-semibold hover:bg-accent-700 transition-all shadow-md shadow-accent-500/20"
+              >
+                <RefreshCw size={14} />重试
+              </button>
+            )}
+            {onReset && (
+              <button
+                onClick={onReset}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white text-surface-600 border-2 border-surface-200 rounded-xl text-sm font-medium hover:bg-surface-50 transition-all"
+              >
+                <ArrowLeft size={14} />换个链接
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -1,8 +1,30 @@
 import asyncio
 import os
+import re
 import uuid
 import shutil
+import tempfile
 from typing import Optional
+
+
+# Bilibili BV号正则
+BV_PATTERN = re.compile(r'(BV[a-zA-Z0-9]{10})')
+
+
+# 模拟浏览器请求头（Bilibili 等国内网站需要）
+BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Origin': 'https://www.bilibili.com',
+    'Referer': 'https://www.bilibili.com/',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+}
 
 
 class VideoService:
@@ -14,29 +36,180 @@ class VideoService:
         'skip_download': True,
         'writesubtitles': False,
         'writeautomaticsub': False,
+        'http_headers': BROWSER_HEADERS,
     }
+
+    # Douyin video ID pattern
+    DOUYIN_PATTERN = re.compile(r'douyin\.com/(?:video|discover\?modal_id=)(\d+)')
 
     def __init__(self, temp_dir: str = "./downloads"):
         self.temp_dir = os.path.abspath(temp_dir)
         os.makedirs(self.temp_dir, exist_ok=True)
+        self._bilibili_cookies = None  # cached Bilibili cookies
+        self._bilibili_svc = None  # lazy-loaded Bilibili direct API client
+        self._douyin_svc = None  # lazy-loaded Douyin direct API client
 
     async def extract_info(self, url: str) -> dict:
         """Extract video metadata. Runs sync yt-dlp in executor."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._extract_info_sync, url)
 
+    def _get_bilibili_cookies(self) -> dict:
+        """Fetch Bilibili homepage to obtain required anti-crawler cookies (buvid3, etc.)."""
+        if self._bilibili_cookies is not None:
+            return self._bilibili_cookies
+
+        try:
+            import httpx
+            # Visit the homepage to get buvid3, b_nut, etc.
+            resp = httpx.get(
+                "https://www.bilibili.com/",
+                headers=BROWSER_HEADERS,
+                timeout=10.0,
+                follow_redirects=True,
+            )
+            cookies = dict(resp.cookies.items())
+            self._bilibili_cookies = cookies
+            return cookies
+        except Exception:
+            self._bilibili_cookies = {}
+            return {}
+
+    def _get_bilibili_video_cookies(self, url: str) -> dict:
+        """Visit the actual Bilibili video page to get all required session cookies."""
+        try:
+            import httpx
+            # First get homepage cookies
+            base_cookies = self._get_bilibili_cookies()
+
+            # Visit the video page to set additional cookies
+            resp = httpx.get(
+                url,
+                headers={**BROWSER_HEADERS, 'Referer': 'https://www.bilibili.com/'},
+                cookies=base_cookies,
+                timeout=10.0,
+                follow_redirects=True,
+            )
+            # Merge all cookies
+            all_cookies = {**base_cookies, **dict(resp.cookies.items())}
+            return all_cookies
+        except Exception:
+            return self._get_bilibili_cookies()
+
+    def _setup_bilibili_cookies(self, url: str, opts: dict):
+        """If URL is from Bilibili, inject video-page cookies into yt-dlp opts.
+        Returns a cleanup callable (or None).
+        """
+        if 'bilibili.com' not in url and 'b23.tv' not in url:
+            return None
+
+        cookies = self._get_bilibili_video_cookies(url)
+        if not cookies:
+            return None
+
+        cookie_lines = []
+        for name, value in cookies.items():
+            cookie_lines.append(
+                f".bilibili.com\tTRUE\t/\tFALSE\t0\t{name}\t{value}"
+            )
+        if not cookie_lines:
+            return None
+
+        fd, cookie_path = tempfile.mkstemp(suffix='.txt', prefix='bili_cookies_')
+        with os.fdopen(fd, 'w') as f:
+            f.write("# Netscape HTTP Cookie File\n")
+            f.write("\n".join(cookie_lines) + "\n")
+        opts['cookiefile'] = cookie_path
+        return lambda: os.unlink(cookie_path)
+
     def _extract_info_sync(self, url: str) -> dict:
-        # Import locally to avoid import errors on startup
+        # Try direct Bilibili API first (more reliable than yt-dlp for Bilibili)
+        if ('bilibili.com' in url or 'b23.tv' in url) and BV_PATTERN.search(url):
+            result = self._try_bilibili_direct(url)
+            if result and result.get('formats'):
+                return result
+
+        # Try direct Douyin API first (with a_bogus / X-Bogus signatures)
+        if 'douyin.com' in url:
+            result = self._try_douyin_direct(url)
+            if result and result.get('formats'):
+                return result
+            # Direct API failed - try yt-dlp with browser cookies
+            # (skip plain yt-dlp for Douyin as it requires fresh cookies)
+            return self._extract_douyin_with_browser_cookies(url)
+
+        # Fall back to yt-dlp for all other sites
         import yt_dlp
 
         opts = {
             **self.INFO_OPTS,
             'extract_flat': False,
         }
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            raw = ydl.extract_info(url, download=False)
-            safe = ydl.sanitize_info(raw)
-        return self._normalize_info(safe)
+
+        cleanup = self._setup_bilibili_cookies(url, opts)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                raw = ydl.extract_info(url, download=False)
+                safe = ydl.sanitize_info(raw)
+            return self._normalize_info(safe)
+        finally:
+            if cleanup:
+                cleanup()
+
+    def _extract_douyin_with_browser_cookies(self, url: str) -> dict:
+        """Last resort for Douyin: try yt-dlp with cookies from Edge/Chrome browser."""
+        import yt_dlp
+
+        # Convert non-standard Douyin URLs (e.g. /jingxuan?modal_id=) to standard /video/ format
+        normalized_url = url
+        modal_match = re.search(r'modal_id=(\d+)', url)
+        if modal_match:
+            normalized_url = f'https://www.douyin.com/video/{modal_match.group(1)}'
+
+        browsers = ['edge', 'chrome', 'firefox', 'opera', 'brave']
+        last_error = None
+
+        for browser in browsers:
+            try:
+                opts = {
+                    **self.INFO_OPTS,
+                    'extract_flat': False,
+                    'cookiesfrombrowser': (browser,),
+                }
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    raw = ydl.extract_info(normalized_url, download=False)
+                    safe = ydl.sanitize_info(raw)
+                return self._normalize_info(safe)
+            except Exception as e:
+                last_error = e
+                continue
+
+        # All methods failed
+        raise RuntimeError("抖音视频解析失败：所有提取方式均未成功。请确认链接有效且视频未被删除。")
+
+    def _try_bilibili_direct(self, url: str) -> Optional[dict]:
+        """Try extracting info via direct Bilibili API."""
+        try:
+            from services.bilibili_service import BilibiliService
+            if self._bilibili_svc is None:
+                self._bilibili_svc = BilibiliService()
+            return self._bilibili_svc.extract_info(url)
+        except Exception:
+            return None
+
+    def _try_douyin_direct(self, url: str) -> Optional[dict]:
+        """Try extracting info via direct Douyin API using Playwright."""
+        try:
+            from services.douyin_service import DouyinService
+            if self._douyin_svc is None:
+                self._douyin_svc = DouyinService()
+            result = self._douyin_svc.extract_info(url)
+            return result
+        except RuntimeError as e:
+            # Re-raise filtered/unavailable video errors
+            raise
+        except Exception:
+            return None
 
     def _normalize_info(self, raw_info: dict) -> dict:
         """Normalize raw yt-dlp output to a consistent format."""
@@ -157,8 +330,14 @@ class VideoService:
             import httpx
             import re
 
-            with yt_dlp.YoutubeDL(self.INFO_OPTS) as ydl:
-                info = ydl.extract_info(url, download=False)
+            opts = {**self.INFO_OPTS}
+            cleanup = self._setup_bilibili_cookies(url, opts)
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+            finally:
+                if cleanup:
+                    cleanup()
 
             # Try requested_subtitles first (yt-dlp may auto-request based on opts),
             # then fall back to subtitles and automatic_captions in raw info
@@ -237,7 +416,7 @@ class VideoService:
 
     # ── Download ──
 
-    async def download(self, url: str, format_id: str) -> tuple[str, str, str]:
+    async def download(self, url: str, format_id: str, download_type: str = "video+audio") -> tuple[str, str, str]:
         """Download video. Returns (file_path, filename, mime_type)."""
         download_id = str(uuid.uuid4())[:8]
         download_dir = os.path.join(self.temp_dir, download_id)
@@ -245,11 +424,23 @@ class VideoService:
 
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            None, self._download_sync, url, format_id, download_dir
+            None, self._download_sync, url, format_id, download_dir, download_type
         )
 
-    def _download_sync(self, url: str, format_id: str, download_dir: str) -> tuple[str, str, str]:
+    def _download_sync(self, url: str, format_id: str, download_dir: str, download_type: str = "video+audio") -> tuple[str, str, str]:
+        # Use direct Bilibili download if this is a Bilibili format ID (prefixed: va_/v_/a_)
+        if ('bilibili.com' in url) and BV_PATTERN.search(url):
+            if format_id.startswith(('va_', 'v_', 'a_')):
+                return self._download_bilibili_sync(url, format_id, download_dir, download_type)
+
+        # Use direct Douyin download if this is a Douyin format ID (prefixed: nwm_video)
+        if 'douyin.com' in url and format_id.startswith('nwm_video'):
+            return self._download_douyin_sync(url, format_id, download_dir, download_type)
+
         import yt_dlp
+
+        # Check if aria2c is available
+        aria2c_available = shutil.which('aria2c') is not None
 
         output_template = os.path.join(download_dir, '%(title)s.%(ext)s')
         opts = {
@@ -258,9 +449,44 @@ class VideoService:
             'format': format_id,
             'outtmpl': output_template,
             'merge_output_format': 'mp4',
+            'http_headers': BROWSER_HEADERS,
+            'socket_timeout': 30,
+            'retries': 5,
+            'fragment_retries': 5,
+            'file_access_retries': 3,
         }
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([url])
+
+        # Use aria2c if available (multi-connection parallel downloads = much faster)
+        # CRITICAL: --file-allocation=none is required on Windows to avoid prealloc
+        # (which writes zeros to entire file before download = minutes of "preparing")
+        if aria2c_available:
+            opts['external_downloader'] = 'aria2c'
+            opts['external_downloader_args'] = [
+                '--max-connection-per-server=16',
+                '--split=16',
+                '--min-split-size=1M',
+                '--file-allocation=none',
+                '--max-tries=5',
+                '--retry-wait=3',
+            ]
+
+        # For audio-only downloads, extract audio to mp3
+        if download_type == 'audio only':
+            opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }]
+            if 'merge_output_format' in opts:
+                del opts['merge_output_format']
+
+        cleanup = self._setup_bilibili_cookies(url, opts)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+        finally:
+            if cleanup:
+                cleanup()
 
         # Find the actual output file
         files = os.listdir(download_dir)
@@ -279,6 +505,151 @@ class VideoService:
 
         mime_type = self._get_mime_type(file_path)
         return file_path, filename, mime_type
+
+    def _download_bilibili_sync(self, url: str, format_id: str, download_dir: str, download_type: str) -> tuple[str, str, str]:
+        """Download Bilibili video using direct stream URLs + ffmpeg."""
+        import httpx
+        import subprocess
+
+        bv_match = BV_PATTERN.search(url)
+        bvid = bv_match.group(1) if bv_match else ''
+
+        # Get stream URLs from Bilibili service
+        from services.bilibili_service import BilibiliService
+        if self._bilibili_svc is None:
+            self._bilibili_svc = BilibiliService()
+        dl_info = self._bilibili_svc.get_download_urls(bvid, format_id)
+        if not dl_info:
+            raise RuntimeError("无法获取 Bilibili 视频流地址")
+
+        fmt = dl_info['format']
+        title = dl_info.get('title', 'video')
+        # Sanitize filename
+        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
+        output_ext = 'mp3' if download_type == 'audio only' else 'mp4'
+        output_path = os.path.join(download_dir, f'{safe_title}.{output_ext}')
+
+        headers = {**BROWSER_HEADERS, 'Referer': f'https://www.bilibili.com/video/{bvid}'}
+
+        if download_type == 'audio only':
+            # Download audio stream only
+            audio_url = fmt.get('_audio_url', '')
+            if not audio_url:
+                raise RuntimeError("该格式没有音频流")
+            self._download_stream(audio_url, output_path, headers)
+        elif download_type == 'video only':
+            # Download video stream only
+            video_url = fmt.get('_video_url', '')
+            if not video_url:
+                raise RuntimeError("该格式没有视频流")
+            self._download_stream(video_url, output_path, headers)
+        else:
+            # Download video+audio and merge
+            video_url = fmt.get('_video_url', '')
+            audio_url = fmt.get('_audio_url', '')
+            if not video_url or not audio_url:
+                raise RuntimeError("该格式缺少视频或音频流")
+
+            video_tmp = os.path.join(download_dir, f'_video_{uuid.uuid4().hex[:4]}.m4s')
+            audio_tmp = os.path.join(download_dir, f'_audio_{uuid.uuid4().hex[:4]}.m4s')
+
+            try:
+                self._download_stream(video_url, video_tmp, headers)
+                self._download_stream(audio_url, audio_tmp, headers)
+
+                # Merge with ffmpeg
+                subprocess.run([
+                    'ffmpeg', '-y', '-i', video_tmp, '-i', audio_tmp,
+                    '-c', 'copy', '-movflags', '+faststart',
+                    output_path,
+                ], check=True, capture_output=True)
+            finally:
+                if os.path.exists(video_tmp):
+                    os.unlink(video_tmp)
+                if os.path.exists(audio_tmp):
+                    os.unlink(audio_tmp)
+
+        filename = os.path.basename(output_path)
+        mime_type = self._get_mime_type(output_path)
+        return output_path, filename, mime_type
+
+    @staticmethod
+    def _download_stream(url: str, dest_path: str, headers: dict):
+        """Download a single stream to a file. Uses aria2c if available (fast), falls back to httpx."""
+        import subprocess
+        import httpx
+
+        aria2c_path = shutil.which('aria2c')
+        if aria2c_path:
+            # Build aria2c header arguments
+            header_args = []
+            for k, v in headers.items():
+                if k.lower() not in ('accept-encoding',):  # Avoid decompression issues
+                    header_args.extend(['--header', f'{k}: {v}'])
+            try:
+                subprocess.run([
+                    aria2c_path,
+                    '--max-connection-per-server=16',
+                    '--split=16',
+                    '--min-split-size=1M',
+                    '--file-allocation=none',
+                    '--max-tries=5',
+                    '--retry-wait=3',
+                    '--connect-timeout=15',
+                    '--timeout=30',
+                    '--dir', os.path.dirname(dest_path),
+                    '--out', os.path.basename(dest_path),
+                    *header_args,
+                    url,
+                ], check=True, capture_output=True)
+                return
+            except subprocess.CalledProcessError:
+                # Fall back to httpx on aria2c failure
+                pass
+
+        # Fallback: httpx streaming with 1MB chunks
+        with httpx.stream('GET', url, headers=headers, timeout=600.0, follow_redirects=True) as resp:
+            resp.raise_for_status()
+            with open(dest_path, 'wb') as f:
+                for chunk in resp.iter_bytes(chunk_size=1048576):
+                    f.write(chunk)
+
+    def _download_douyin_sync(self, url: str, format_id: str, download_dir: str, download_type: str) -> tuple[str, str, str]:
+        """Download Douyin video using direct CDN URLs."""
+        import httpx
+
+        video_id_match = self.DOUYIN_PATTERN.search(url)
+        video_id = video_id_match.group(1) if video_id_match else ''
+
+        # Get download URLs from Douyin service
+        from services.douyin_service import DouyinService
+        if self._douyin_svc is None:
+            self._douyin_svc = DouyinService()
+        dl_info = self._douyin_svc.get_download_urls(video_id, format_id)
+        if not dl_info:
+            raise RuntimeError("无法获取抖音视频下载地址")
+
+        fmt = dl_info['format']
+        title = dl_info.get('title', 'video')
+        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
+        output_ext = 'mp4'
+        output_path = os.path.join(download_dir, f'{safe_title}.{output_ext}')
+
+        # Use direct download URL
+        download_url = fmt.get('_direct_url') or fmt.get('_download_url', '')
+        if not download_url:
+            raise RuntimeError("该格式没有可用的下载地址")
+
+        headers = {
+            **BROWSER_HEADERS,
+            'Referer': f'https://www.douyin.com/video/{video_id}',
+        }
+
+        self._download_stream(download_url, output_path, headers)
+
+        filename = os.path.basename(output_path)
+        mime_type = self._get_mime_type(output_path)
+        return output_path, filename, mime_type
 
     def cleanup(self, file_path: str):
         """Remove temp files after streaming."""

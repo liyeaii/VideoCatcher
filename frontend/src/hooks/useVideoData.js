@@ -5,9 +5,9 @@ export function useVideoData() {
   const [phase, setPhase] = useState('idle'); // idle | loading | loaded | error
   const [videoInfo, setVideoInfo] = useState(null);
   const [summary, setSummary] = useState(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState(null);
   const [error, setError] = useState(null);
+  const [lastUrl, setLastUrl] = useState('');
   const [downloadingId, setDownloadingId] = useState(null);
   const [downloadProgress, setDownloadProgress] = useState({});
 
@@ -29,6 +29,7 @@ export function useVideoData() {
     setSummary(null);
     setSummaryError(null);
     setError(null);
+    setLastUrl(url);
 
     // Fetch info + summary in parallel
     const [infoResult, summaryResult] = await Promise.allSettled([
@@ -46,7 +47,6 @@ export function useVideoData() {
       const err = infoResult.status === 'fulfilled' ? infoResult.value.error : { title: '请求失败', detail: '', retryable: true };
       setError(err);
       setPhase('error');
-      setSummaryLoading(false);
       return;
     }
 
@@ -63,28 +63,31 @@ export function useVideoData() {
   }, [cancelPending]);
 
   const retry = useCallback(() => {
-    // User must submit again
-    setPhase('idle');
-    setError(null);
-  }, []);
+    if (lastUrl) {
+      submitUrl(lastUrl);
+    } else {
+      setPhase('idle');
+      setError(null);
+    }
+  }, [lastUrl, submitUrl]);
 
   const reset = useCallback(() => {
     cancelPending();
     setPhase('idle');
     setVideoInfo(null);
     setSummary(null);
-    setSummaryLoading(false);
     setSummaryError(null);
     setError(null);
+    setLastUrl('');
     setDownloadingId(null);
     setDownloadProgress({});
   }, [cancelPending]);
 
-  const download = useCallback(async (url, formatId) => {
+  const download = useCallback(async (url, formatId, type) => {
     setDownloadingId(formatId);
     setDownloadProgress((prev) => ({ ...prev, [formatId]: 0 }));
 
-    const result = await downloadVideo(url, formatId, (pct) => {
+    const result = await downloadVideo(url, formatId, type, (pct) => {
       setDownloadProgress((prev) => ({ ...prev, [formatId]: pct }));
     });
 
@@ -93,7 +96,7 @@ export function useVideoData() {
   }, []);
 
   return {
-    phase, videoInfo, summary, summaryLoading, summaryError, error,
+    phase, videoInfo, summary, summaryError, error, lastUrl,
     downloadingId, downloadProgress,
     submitUrl, retry, reset, download,
   };

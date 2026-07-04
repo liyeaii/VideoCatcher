@@ -5,6 +5,8 @@ const api = axios.create({
   timeout: 120000,
 });
 
+export default api;
+
 /**
  * Normalize error from API responses
  */
@@ -54,9 +56,9 @@ export async function fetchVideoSummary(url, signal) {
 /**
  * POST /api/download — returns blob for file download
  */
-export async function downloadVideo(url, formatId, onProgress) {
+export async function downloadVideo(url, formatId, type, onProgress) {
   try {
-    const response = await api.post('/download', { url, format_id: formatId }, {
+    const response = await api.post('/download', { url, format_id: formatId, type }, {
       responseType: 'blob',
       timeout: 600000,
       onDownloadProgress: (e) => {
@@ -77,14 +79,14 @@ export async function downloadVideo(url, formatId, onProgress) {
     }
 
     // Trigger browser download
-    const url = URL.createObjectURL(response.data);
+    const blobUrl = URL.createObjectURL(response.data);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = blobUrl;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(blobUrl);
 
     return { ok: true };
   } catch (err) {

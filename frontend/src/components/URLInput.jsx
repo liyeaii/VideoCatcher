@@ -1,101 +1,109 @@
 import { useState } from 'react';
-import { LinkIcon, Loader2 } from 'lucide-react';
+import { Link, Loader2, Search, ArrowRight } from 'lucide-react';
 
-export default function URLInput({ onSubmit, isLoading }) {
+export default function URLInput({ onSubmit, isLoading, isIdle }) {
   const [url, setUrl] = useState('');
   const [localError, setLocalError] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const trimmed = url.trim();
-    if (!trimmed) {
-      setLocalError('请输入视频链接');
-      return;
-    }
-    // Basic URL validation
-    try {
-      new URL(trimmed);
-    } catch {
-      setLocalError('请输入有效的 URL 地址');
-      return;
-    }
-    if (!trimmed.startsWith('http')) {
-      setLocalError('链接必须以 http:// 或 https:// 开头');
-      return;
-    }
+    if (!trimmed) { setLocalError('请输入视频链接'); return; }
+    try { new URL(trimmed); } catch { setLocalError('请输入有效的 URL'); return; }
+    if (!trimmed.startsWith('http')) { setLocalError('链接必须以 http:// 或 https:// 开头'); return; }
     setLocalError('');
     onSubmit(trimmed);
   };
 
-  const handlePaste = () => {
-    navigator.clipboard.readText().then((text) => {
-      if (text) {
-        setUrl(text);
-        setLocalError('');
-      }
-    }).catch(() => {});
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) { setUrl(text); setLocalError(''); }
+    } catch {}
   };
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
-      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIvPjwvZz48L2c+PC9zdmc+')] opacity-50"></div>
-      <div className="relative max-w-3xl mx-auto px-4 py-20 sm:py-28">
-        <div className="text-center mb-10">
-          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4 tracking-tight">
-            🎬 万能视频下载器
-          </h1>
-          <p className="text-lg sm:text-xl text-indigo-100">
-            粘贴视频链接，一键获取视频信息和下载选项
-          </p>
-          <p className="text-sm text-indigo-200/80 mt-2">
-            支持 YouTube · Bilibili · TikTok · Twitter/X · Vimeo 等 1000+ 网站
-          </p>
+    <header className={`relative transition-all duration-500 ${isIdle ? 'hero-gradient py-20 sm:py-28' : 'bg-white border-b border-surface-200 py-6 sm:py-8'}`}>
+      {/* Decorative blobs for idle state */}
+      {isIdle && (
+        <>
+          <div className="absolute top-10 left-10 w-64 h-64 bg-accent-400/10 rounded-full blur-3xl" />
+          <div className="absolute bottom-10 right-10 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-blue-400/5 rounded-full blur-3xl" />
+        </>
+      )}
+
+      <div className="max-w-3xl mx-auto px-4 relative z-10">
+        {/* Logo / Title */}
+        <div className={`text-center transition-all duration-500 ${isIdle ? 'mb-10' : 'mb-4'}`}>
+          <div className="inline-flex items-center gap-2.5 mb-3">
+            <div className="w-9 h-9 rounded-xl bg-accent-600 flex items-center justify-center shadow-lg shadow-accent-500/25">
+              <Search size={18} className="text-white" />
+            </div>
+            <h1 className={`font-extrabold tracking-tight text-surface-900 ${isIdle ? 'text-3xl sm:text-4xl' : 'text-xl'}`}>
+              Video<span className="text-accent-600">Catcher</span>
+            </h1>
+          </div>
+          {isIdle && (
+            <p className="text-surface-500 text-base sm:text-lg max-w-md mx-auto leading-relaxed">
+              粘贴视频链接，一键获取信息、AI 智能总结与多格式下载
+            </p>
+          )}
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto">
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => { setUrl(e.target.value); setLocalError(''); }}
-              onPaste={() => {
-                setTimeout(() => setLocalError(''), 100);
-              }}
-              placeholder="粘贴视频链接到此处..."
-              disabled={isLoading}
-              className={`w-full px-5 py-4 rounded-full text-gray-900 text-base shadow-lg border-2 transition-all outline-none
-                ${localError ? 'border-red-400 bg-red-50' : 'border-transparent focus:border-indigo-300 bg-white'}`}
-            />
+        {/* Search Box */}
+        <form onSubmit={handleSubmit} className="max-w-xl mx-auto">
+          <div className={`flex gap-2 ${isIdle ? 'shadow-lg shadow-surface-900/5' : ''}`}>
+            <div className="flex-1 relative group">
+              <input
+                type="text"
+                value={url}
+                onChange={e => { setUrl(e.target.value); setLocalError(''); }}
+                placeholder={isIdle ? '粘贴视频链接... 支持 YouTube、Bilibili、抖音等' : '粘贴视频链接...'}
+                disabled={isLoading}
+                className={`w-full pl-4 pr-16 py-3.5 rounded-xl text-sm outline-none transition-all duration-200
+                  ${localError
+                    ? 'border-2 border-red-300 bg-red-50 text-red-700 placeholder-red-400'
+                    : 'border-2 border-surface-200 bg-white text-surface-900 placeholder-surface-400 hover:border-surface-300 focus:border-accent-500 focus:ring-4 focus:ring-accent-500/10'}`}
+              />
+              <button
+                type="button"
+                onClick={handlePaste}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-xs font-medium text-surface-500 hover:text-accent-600 bg-surface-100 hover:bg-accent-50 px-3 py-1.5 rounded-lg transition-all duration-150 flex items-center gap-1.5"
+                title="从剪贴板粘贴"
+              >
+                <Link size={12} />
+                粘贴
+              </button>
+            </div>
             <button
-              type="button"
-              onClick={handlePaste}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-indigo-600 bg-gray-100 hover:bg-indigo-50 px-3 py-1.5 rounded-full transition-colors"
+              type="submit"
+              disabled={isLoading}
+              className="px-5 py-3.5 rounded-xl font-semibold text-sm text-white transition-all duration-200
+                bg-accent-600 hover:bg-accent-700 active:bg-accent-700
+                disabled:opacity-50 disabled:cursor-not-allowed
+                shadow-lg shadow-accent-500/25 hover:shadow-accent-500/40
+                flex items-center gap-2 whitespace-nowrap"
             >
-              <LinkIcon size={14} className="inline mr-1" />
-              粘贴
+              {isLoading ? (
+                <><Loader2 size={16} className="animate-spin" />解析中</>
+              ) : (
+                <><Search size={16} />解析</>
+              )}
             </button>
           </div>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="px-8 py-4 rounded-full font-semibold text-white shadow-lg transition-all
-              bg-indigo-900/20 backdrop-blur border border-white/20 hover:bg-white/20
-              disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 size={18} className="animate-spin" />
-                解析中...
-              </>
-            ) : (
-              '解析视频'
-            )}
-          </button>
+          {localError && (
+            <p className="mt-2 text-red-500 text-xs font-medium text-center">{localError}</p>
+          )}
         </form>
-        {localError && (
-          <p className="text-center mt-3 text-red-200 text-sm">{localError}</p>
+
+        {/* Quick hint for idle state */}
+        {isIdle && (
+          <p className="text-center mt-4 text-xs text-surface-400">
+            按 <kbd className="px-1.5 py-0.5 bg-surface-200 rounded text-surface-500 font-mono text-xs">Ctrl+V</kbd> 粘贴 &nbsp;·&nbsp; 支持 1000+ 视频平台
+          </p>
         )}
       </div>
-    </section>
+    </header>
   );
 }
