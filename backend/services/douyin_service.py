@@ -65,7 +65,7 @@ class DouyinService:
             from playwright.async_api import async_playwright
         except ImportError:
             raise RuntimeError(
-                "Playwright 未安装。请在 Railway Dockerfile 中添加:\n"
+                "Playwright 未安装。请在 Dockerfile 中添加:\n"
                 "RUN pip install playwright && python -m playwright install chromium"
             )
 
@@ -83,7 +83,7 @@ class DouyinService:
         except Exception as e:
             raise RuntimeError(
                 f"Chromium 启动失败: {e}\n"
-                "请在 Railway Dockerfile 中安装 Chromium:\n"
+                "请在 Dockerfile 中安装 Chromium:\n"
                 "RUN python -m playwright install chromium && python -m playwright install-deps chromium"
             )
         return self._browser

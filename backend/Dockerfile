@@ -1,5 +1,5 @@
 # ============================================
-# VideoCatcher Backend — Railway Production
+# VideoCatcher Backend — Production
 # Python 3.12 + FFmpeg (+ optional Playwright)
 # ============================================
 FROM python:3.12-slim

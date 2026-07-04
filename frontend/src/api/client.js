@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+// 生产环境使用环境变量中的后端地址，本地开发使用 Vite proxy
+const API_BASE = import.meta.env.VITE_API_BASE_URL
+  ? `${import.meta.env.VITE_API_BASE_URL}/api`
+  : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   timeout: 120000,
 });
 
